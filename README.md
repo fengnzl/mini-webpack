@@ -1,6 +1,6 @@
 # Mini Webpack
 
-本仓库主要模拟实现一个最简单的 webpack ，这里只模拟了核心逻辑实现，使用的 [pnpm + nx](https://fengnzl.github.io/translation/setup-monorepo-with-PNPM-and-speed-it-up-with-Nx.html#%E6%B7%BB%E5%8A%A0-remix-%E5%BA%94%E7%94%A8%E7%A8%8B%E5%BA%8F) 管理的 monorepo，便于后续有相关模拟实现可以继续添加到本仓库。
+本仓库主要模拟实现一个最简单的 webpack ，这里只模拟了核心逻辑实现，使用的 [pnpm + nx](https://fengnzl.github.io/translation/setup-monorepo-with-PNPM-and-speed-it-up-with-Nx.html#%E5%88%9D%E5%A7%8B%E5%8C%96%E4%B8%80%E4%B8%AA%E6%96%B0%E7%9A%84-pnpm-workspaces) 管理的 monorepo，便于后续有相关模拟实现可以继续添加到本仓库。
 
 我们首先要知道，webpack 打包过程中主要经历的核心流程，这样我们就可以按这几个流程来慢慢实现我们的 mini webpack。其打包主要是以下几个步骤：
 
@@ -25,7 +25,8 @@ compiler.run()
 ```js
 // src/webpack.js
 // 引入默认配置
-import { DefaultBuildConfig } from "./config";
+import { DefaultBuildConfig } from "./config.js";
+import Compiler from "./Compiler.js";
 
 function webpack(options = DefaultBuildConfig) {
   // 创建 Compiler 实例
@@ -38,14 +39,111 @@ export default webpack;
 
 // 默认配置信息，这里只简单写了 入口和出口信息
 // src/config.js
+import { resolve, dirname } from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// 默认 config 配置
 export const DefaultBuildConfig = {
   entry: "./src/index.js",
   output: {
-    path: path.resolve(__dirname, "dist"),
+    path: resolve(__dirname, "dist"),
     filename: "main.js",
   },
 };
 ```
+
+## 构建依赖图谱
+
+在传入基本配置信息之后，我们需要做的就是获取其入口 `entry` 配置，然后根据入口文件来递归解析相关引入依赖，其中包括将配置文件及引入文件交给对应的 `loader` 处理，返回处理后的代码。这里我们需要实现 `Compiler` 类，并提供 `run` 方法，用于构建调用。
+
+首先我们先根据获取文件内容：
+
+```js
+// src/Compiler.js
+import { readFile } from "fs/promises";
+import { join } from "path";
+import { cwd } from "process";
+
+class Compiler {
+  constructor(options) {
+    this.options = options;
+  }
+
+  run() {
+    this.createAssets();
+  }
+
+  // 获取文件内容
+  async createAssets() {
+    // 获取文件名全路径
+    const entryFullName = join(cwd(), this.options.entry);
+    // 获取文件内容
+    const resource = await readFile(entryFullName, {
+      encoding: "utf-8",
+    });
+    console.log(resource);
+    // TODO 获取依赖关系
+    return {};
+  }
+}
+
+export default Compiler;
+```
+
+然后为了更加符合 `webpack` 实现，我们这里提供一个可执行命令出去，修改 `package.json` 文件，添加 `bin` 字段：
+
+```json
+{
+  //...
+  "main": "./src/webpack.js",
+  "bin": {
+    "webpack": "./bin/webpack.js"
+  },
+}
+```
+
+然后新增 `bin/webpack.js` 文件，将执行的命令填入。
+
+```js
+#!/usr/bin/env node
+
+import webpack from "../src/webpack.js";
+
+const compiler = webpack();
+
+compiler.run();
+```
+
+然后新增 `example` 文件夹来实现基本的代码：
+
+![image-20221212010135421](https://raw.githubusercontent.com/fengnzl/HexoImages/master/blog/202212120101482.png)
+
+`foo.js` 和 `index.js` 代码分别如下所示
+
+```js
+// example/basic/foo.js
+export function foo() {
+  console.log("foo load");
+}
+// example/basic/index.js
+import { foo } from "./foo.js";
+
+foo();
+console.log("basic test");
+```
+
+这时候我们在通过执行 `pnpm --filter basic add webpack --workspace` 将本地 `webpack` 连接到 `basic` 文件夹的依赖中，同时我们在 `example/basic/package.json` 文件中添加打包命令。
+
+在 `mini-webpack` 根目录下安装 `Nx` ，从而优化运行 `monorepo` 的场景。
+
+通过 `pnpm add nx -D -w` 命令安装之后，执行 `npx nx build basic` 就可执行对应文件夹下的打包命令，此时我们可以看到命令行输出了 `index.js` 的内容。
+
+![image-20221212010956709](https://raw.githubusercontent.com/fengnzl/HexoImages/master/blog/202212120109743.png)
+
+
 
 ## 扩展知识
 

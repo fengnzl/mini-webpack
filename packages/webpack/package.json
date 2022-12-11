@@ -2,7 +2,10 @@
   "name": "webpack",
   "version": "1.0.0",
   "description": "",
-  "main": "webpack.js",
+  "main": "./src/webpack.js",
+  "bin": {
+    "webpack": "./bin/webpack.js"
+  },
   "scripts": {
     "build": "node src/webpack.js"
   },

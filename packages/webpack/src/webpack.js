@@ -1,4 +1,5 @@
-import { DefaultBuildConfig } from "./config";
+import { DefaultBuildConfig } from "./config.js";
+import Compiler from "./Compiler.js";
 
 function webpack(options = DefaultBuildConfig) {
   // 创建 Compiler 实例
