@@ -10,11 +10,48 @@
 
 ## 读取配置文件
 
-首先我们在 webpack 文件夹的入口文件创建执行代码的入口：
+我们通过调试 webpack 执行过程及查看[官方文档](https://webpack.docschina.org/api/node/#webpack)可知，执行命令的时候主要进行以操作：
 
+```js
+const webpack = require('webpack');
+// 调用 webpack 方法 并传入配置信息
+const compiler = webpack(options);
+// 调用返回的 Compiler 实例，调用 run 方法
+compiler.run()
+```
 
+我们先来模拟以上过程，首先我们在 webpack 文件夹的入口文件创建执行代码的入口以及读取配置文件信息：
+
+```js
+// src/webpack.js
+// 引入默认配置
+import { DefaultBuildConfig } from "./config";
+
+function webpack(options = DefaultBuildConfig) {
+  // 创建 Compiler 实例
+  const compiler = new Compiler(options);
+
+  return compiler;
+}
+
+export default webpack;
+
+// 默认配置信息，这里只简单写了 入口和出口信息
+// src/config.js
+export const DefaultBuildConfig = {
+  entry: "./src/index.js",
+  output: {
+    path: path.resolve(__dirname, "dist"),
+    filename: "main.js",
+  },
+};
+```
 
 ## 扩展知识
+
+### 调试 webpack
+
+**使用 ndb 调试**
 
 使用 VScode 断点调试 webpack。有时候我们在查看源码的时候需要编写对应的案例，然后进入到源码执行流程中才能更好理解，因此我们下面来简述如何调试源码，以 webpack 为例，其他工具库调试类似。
 
@@ -67,4 +104,56 @@ module.exports = {
 
   ![ndb-npx-webpack](https://raw.githubusercontent.com/fengnzl/HexoImages/master/blog/image-20221211002648308%E7%9A%84%E5%89%AF%E6%9C%AC.png)
 
+  **自己模拟运行调用函数**
   
+  由于使用 `ndb` 的方法调试会经常崩溃，因此我们也可以直接用 VScode 自带的调试工具，首先我们在 webpack 目录下增加 debug 目录，并添加对应的基础文件。
+  
+  ```js
+  // debug/src/foo.js
+  export const foo = () => {
+  	console.log("this is foo");
+  };
+  
+  // debug/src/index.js
+  import { foo } from "./foo";
+  
+  foo();
+  console.log("debug webpack");
+  // debug/webpack.config.js
+  const path = require("path");
+  module.exports = {
+  	mode: "development",
+  	entry: "./index.js",
+  	output: {
+  		filename: "bundle.js",
+  		path: path.join(__dirname, "./dist")
+  	}
+  };
+  
+  // debug/start.js
+  const webpack = require("../lib/webpack");
+  const config = require("./webpack.config");
+  
+  // 加载基本配置
+  const compiler = webpack(config);
+  // 执行打包操作
+  compiler.run();
+  ```
+  
+  为了确定可以正确打包，我们可以先用全局的 webpack 执行构建操作：
+  
+  ```bash
+  $ webpack ./src/index.js -c webpack.config.js
+  ```
+
+​		执行以上代码之后可以看到正常打包的文件，这时我们我们在 `debug/src/index.js` 文件中打上断点，并通过 `F5` 进入调试模式，如果没有进入，那么需要我们创建 `launch.json`
+
+![image-20221211141519601](https://raw.githubusercontent.com/fengnzl/HexoImages/master/blog/202212111415699.png)
+
+其中 `${file}` 表示当前文件。
+
+**使用 node 调试命令**
+
+当我们执行 `webpack` 命令时实际上运行的是 `node_modules` 下面 `.bin` 的 `webpack` 中的代码，因此我们可以运行以下命令 `node --inspect-brk ./node_modules/.bin/webpack ` 当执行 `node --inspect-brk` 命令之后，node 会自动断点断在代码文件的第一行，这时我们打开 chrome，输入以下网址 `chrome://inspect` 点击这里的 `inspect` 就可以进入调试。
+
+![image-20221211215218464](https://raw.githubusercontent.com/fengnzl/HexoImages/master/blog/202212112152606.png)

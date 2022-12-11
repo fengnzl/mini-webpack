@@ -2,11 +2,12 @@
   "name": "webpack",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "webpack.js",
   "scripts": {
-    "build": "node src/index.js"
+    "build": "node src/webpack.js"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "type": "module"
 }
