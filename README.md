@@ -143,6 +143,79 @@ console.log("basic test");
 
 ![image-20221212010956709](https://raw.githubusercontent.com/fengnzl/HexoImages/master/blog/202212120109743.png)
 
+获取入口文件内容之后，我们就需要将 `import` 导入语句尽心分析，将其依赖收集起来，后续不断递归处理其依赖，这里就需要用到 `babel` 处理。具体使用可以查看[官方文档](https://babeljs.io/docs/en/babel-traverse)。
+
+```js
+import { readFileSync } from "fs";
+import { dirname, join, resolve } from "path";
+import { cwd } from "process";
+import { parse } from "@babel/parser";
+import babelTraverse from "@babel/traverse";
+
+const traverse = babelTraverse.default;
+class Compiler {
+  constructor(options) {
+    this.options = options;
+    // 保存已经遍历过的依赖
+    this.modules = new Set();
+  }
+
+  run() {
+    const graph = this.createGraph();
+    console.log(graph);
+  }
+
+  // 获取文件内容
+  createAssets(filePath) {
+    // 获取文件内容
+    const source = readFileSync(filePath, {
+      encoding: "utf-8",
+    });
+    // 获取依赖关系
+    const ast = parse(source, {
+      sourceType: "module",
+    });
+    const deps = [];
+    traverse(ast, {
+      ImportDeclaration: ({ node }) => {
+        // 获取当前文件所在文件夹
+        const curDirName = dirname(filePath);
+        // 获取文件依赖路径
+        const dependFile = join(curDirName, node.source.value);
+        // 没有处理过
+        if (!this.modules.has(dependFile)) {
+          deps.push(dependFile);
+          this.modules.add(dependFile);
+        }
+      },
+    });
+    return {
+      filePath,
+      source,
+      deps,
+    };
+  }
+  createGraph() {
+    // 获取文件名全路径
+    const entryFullName = join(cwd(), this.options.entry);
+    const mainAsset = this.createAssets(entryFullName);
+    const queue = [mainAsset];
+    // 递归处理
+    for (const asset of queue) {
+      asset.deps.forEach((child) => {
+        queue.push(this.createAssets(child));
+      });
+    }
+    return queue;
+  }
+}
+
+export default Compiler;
+```
+
+此时我们打包之后可以看到输出的依赖数据如下：
+![image-20221213005810146](https://raw.githubusercontent.com/fengnzl/HexoImages/master/blog/202212130058196.png)
+
 
 
 ## 扩展知识
