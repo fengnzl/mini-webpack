@@ -143,7 +143,7 @@ console.log("basic test");
 
 ![image-20221212010956709](https://raw.githubusercontent.com/fengnzl/HexoImages/master/blog/202212120109743.png)
 
-获取入口文件内容之后，我们就需要将 `import` 导入语句尽心分析，将其依赖收集起来，后续不断递归处理其依赖，这里就需要用到 `babel` 处理。具体使用可以查看[官方文档](https://babeljs.io/docs/en/babel-traverse)。
+获取入口文件内容之后，我们就需要将 `import` 导入语句进行分析，将其依赖收集起来，后续不断递归处理其依赖，这里就需要用到 `babel` 处理。具体使用可以查看[官方文档](https://babeljs.io/docs/en/babel-traverse)。
 
 ```js
 import { readFileSync } from "fs";
@@ -216,7 +216,109 @@ export default Compiler;
 此时我们打包之后可以看到输出的依赖数据如下：
 ![image-20221213005810146](https://raw.githubusercontent.com/fengnzl/HexoImages/master/blog/202212130058196.png)
 
+## 生成打包代码
 
+为了通过依赖图来实现最终生成的打包代码，我们可以先模拟处理生成打包代码的过程：
+
+首先存在以下两个函数：
+
+```js
+function indexjs() {
+  // index.js
+  // 模拟 cjs require 函数
+  import { foo } from "./foo.js";
+  foo();
+  console.log("basic test");
+}
+
+function foojs() {
+  // foo.js
+  export function foo() {
+    console.log("foo load");
+  }
+}
+```
+
+我们需要模拟 `cjs` 导入规范来将 `foo` 进行导入，模拟过程如下：
+
+```js
+// 实现 require 函数
+function require(path) {
+  const modules = {
+    "./index.js": indexjs,
+    "./foo.js": foojs,
+  };
+
+  const module = {
+    exports: {},
+  };
+  const fn = modules[path];
+  fn(require, module, module.exports);
+  return module.exports;
+}
+// 执行入口文件
+// indexjs();
+require("./index.js");
+
+function indexjs(require, module, exports) {
+  // index.js
+  // 模拟 cjs require 函数
+  const { foo } = require("./foo.js");
+  foo();
+  console.log("basic test");
+}
+
+function foojs(require, module, exports) {
+  // foo.js
+  function foo() {
+    console.log("foo load");
+  }
+
+  module.exports = {
+    foo,
+  };
+}
+// foo load
+// basic test
+```
+
+而我们最终会生成一个 `IIFE` 函数，如下所示：
+
+```js
+(function (modules) {
+  function require(path) {
+    const module = {
+      exports: {},
+    };
+    const fn = modules[path];
+    fn(require, module, module.exports);
+    return module.exports;
+  }
+  require("./index.js");
+})({
+  "./index.js": function (require, module, exports) {
+    // index.js
+    // 模拟 cjs require 函数
+    const { foo } = require("./foo.js");
+    foo();
+    console.log("basic test");
+  },
+  "./foo.js": function (require, module, exports) {
+    // foo.js
+    function foo() {
+      console.log("foo load");
+    }
+
+    module.exports = {
+      foo,
+    };
+  },
+});
+// foo load
+// basic test
+```
+
+因此我们只要将构建获取的依赖图谱在转换成上述代码即可，一般通过字符串替换或者模板替换生成。这里我们选择使用 [ejs](https://www.npmjs.com/package/ejs) 模板生成器来处理。
 
 ## 扩展知识
 
