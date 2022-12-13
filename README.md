@@ -39,17 +39,10 @@ export default webpack;
 
 // 默认配置信息，这里只简单写了 入口和出口信息
 // src/config.js
-import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-// 默认 config 配置
 export const DefaultBuildConfig = {
   entry: "./src/index.js",
   output: {
-    path: resolve(__dirname, "dist"),
+    path: "./dist",
     filename: "main.js",
   },
 };
@@ -146,9 +139,9 @@ console.log("basic test");
 获取入口文件内容之后，我们就需要将 `import` 导入语句进行分析，将其依赖收集起来，后续不断递归处理其依赖，这里就需要用到 `babel` 处理。具体使用可以查看[官方文档](https://babeljs.io/docs/en/babel-traverse)。
 
 ```js
-import { readFileSync } from "fs";
-import { dirname, join, resolve } from "path";
-import { cwd } from "process";
+import { readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { cwd } from "node:process";
 import { parse } from "@babel/parser";
 import babelTraverse from "@babel/traverse";
 
@@ -319,6 +312,149 @@ function foojs(require, module, exports) {
 ```
 
 因此我们只要将构建获取的依赖图谱在转换成上述代码即可，一般通过字符串替换或者模板替换生成。这里我们选择使用 [ejs](https://www.npmjs.com/package/ejs) 模板生成器来处理。
+
+执行以下代码进行安装 `pnpm add ejs -F webpack`，然后创建模板文件 `bundle.ejs` ，同时需要通过 [babel](https://babeljs.io/docs/en/babel-core#transformfromastasync) 的 `transformFromAstAsync` 方法将代码转义成 `ejs` 代码，具体如下所示：
+
+```js
+// Compiler.js
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { cwd } from "node:process";
+import { parse } from "@babel/parser";
+import babelTraverse from "@babel/traverse";
+import { fileURLToPath } from "node:url";
+import ejs from "ejs";
+import { transformFromAst } from "@babel/core";
+
+const __filename = fileURLToPath(import.meta.url);
+
+const traverse = babelTraverse.default;
+
+//运行命令所在的目录
+const executePath = cwd();
+class Compiler {
+  constructor(options) {
+    this.options = options;
+    // 保存已经遍历过的依赖
+    this.modules = new Set();
+  }
+
+  run() {
+    console.log("[mini-webpack]: 开始打包");
+    const graph = this.createGraph();
+    this.build(graph);
+  }
+
+  // 获取文件内容
+  createAssets(filePath) {
+    // 获取文件内容
+    const source = readFileSync(filePath, {
+      encoding: "utf-8",
+    });
+    // 获取依赖关系
+    const ast = parse(source, {
+      sourceType: "module",
+    });
+    const deps = [];
+    traverse(ast, {
+      ImportDeclaration: ({ node }) => {
+        // 获取当前文件所在文件夹
+        const curDirName = dirname(filePath);
+        // 获取文件依赖路径
+        const dependFile = join(curDirName, node.source.value);
+        // 没有处理过
+        if (!this.modules.has(dependFile)) {
+          deps.push(dependFile);
+          this.modules.add(dependFile);
+        }
+      },
+    });
+    // 将代码转换成 cjs
+    const { code } = transformFromAst(ast, null, {
+      presets: ["@babel/preset-env"],
+    });
+    return {
+      filePath,
+      source,
+      deps,
+      code,
+    };
+  }
+  createGraph() {
+    // 获取文件名全路径
+    const entryFullName = join(executePath, this.options.entry);
+    const mainAsset = this.createAssets(entryFullName);
+    const queue = [mainAsset];
+    for (const asset of queue) {
+      asset.deps.forEach((child) => {
+        queue.push(this.createAssets(child));
+      });
+    }
+    return queue;
+  }
+
+  build(graph) {
+    // 获取定义的模板文件
+    const ejsTemplate = join(__filename, "../bundle.ejs");
+    const template = readFileSync(ejsTemplate, {
+      encoding: "utf-8",
+    });
+    // 根据依赖图生成所要往模板里面填充的数据
+    const data = graph.map((asset) => {
+      const { code, filePath } = asset;
+      return {
+        code,
+        filePath,
+      };
+    });
+    // console.log(data);
+    // 通过 ejs 渲染模板中的内容
+    const bundleInfo = ejs.render(template, { data });
+    // 将选后的内容写入打包目录下
+    this.writeBuildFile(bundleInfo);
+  }
+
+ 	writeBuildFile(content) {
+    const { path: outputPath, filename } = this.options.output;
+    const outputDirPath = join(executePath, outputPath);
+    if (!existsSync(outputDirPath)) {
+      console.log("[mini-webpack]: 创建打包文件夹");
+      mkdirSync(outputDirPath);
+    }
+    // 写入打包内容
+    writeFileSync(join(outputDirPath, filename), content, {
+      encoding: "utf-8",
+    });
+    console.log("[mini-webpack]: 打包完成");
+  }
+}
+export default Compiler;
+
+// 模板文件如下 bundle.ejs
+(function (modules) {
+  function require(path) {
+    const module = {
+      exports: {},
+    };
+    const fn = modules[path];
+    fn(require, module, module.exports);
+    return module.exports;
+  }
+  require("./index.js");
+})({
+  <% data.forEach((info) => { %>
+    "<%- info['filePath'] %>": function(require, module, exports){
+      <%- info['code'] %>
+    },
+  <% }); %>
+});
+```
+
+执行 `npx nx build basic` 执行 `example/basic` 目录下的打包命令，可以看到生成的打包文件如下所示：
+
+![image-20221214004245953](https://raw.githubusercontent.com/fengnzl/HexoImages/master/blog/202212140042033.png)
+
+这里我们可以看到生成的打包文件还存在一些问题，这里路径和执行时候的文件并没有关联上，因此我们需要通过在打包过程中生成一个 `mapping` 对象来找到对应引入的文件，且可以避免同名文件不同文件夹下的冲突。
 
 ## 扩展知识
 

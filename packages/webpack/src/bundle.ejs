@@ -1,0 +1,17 @@
+(function (modules) {
+  function require(path) {
+    const module = {
+      exports: {},
+    };
+    const fn = modules[path];
+    fn(require, module, module.exports);
+    return module.exports;
+  }
+  require("./index.js");
+})({
+  <% data.forEach((info) => { %>
+    "<%- info['filePath'] %>": function(require, module, exports){
+      <%- info['code'] %>
+    },
+  <% }); %>
+});

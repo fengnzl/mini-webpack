@@ -14,7 +14,12 @@
   "license": "ISC",
   "type": "module",
   "devDependencies": {
+    "@babel/core": "^7.20.5",
     "@babel/parser": "^7.20.5",
+    "@babel/preset-env": "^7.20.2",
     "@babel/traverse": "^7.20.5"
+  },
+  "dependencies": {
+    "ejs": "^3.1.8"
   }
 }
