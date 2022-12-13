@@ -13,11 +13,13 @@ const traverse = babelTraverse.default;
 
 //运行命令所在的目录
 const executePath = cwd();
+
+let id = 0;
 class Compiler {
   constructor(options) {
     this.options = options;
     // 保存已经遍历过的依赖
-    this.modules = new Set();
+    this.modules = new Map();
   }
 
   run() {
@@ -46,7 +48,8 @@ class Compiler {
         // 没有处理过
         if (!this.modules.has(dependFile)) {
           deps.push(dependFile);
-          this.modules.add(dependFile);
+          // 保留全路径-相对路径关系
+          this.modules.set(dependFile, node.source.value);
         }
       },
     });
@@ -59,6 +62,8 @@ class Compiler {
       source,
       deps,
       code,
+      mapping: {},
+      id: id++,
     };
   }
   createGraph() {
@@ -67,8 +72,14 @@ class Compiler {
     const mainAsset = this.createAssets(entryFullName);
     const queue = [mainAsset];
     for (const asset of queue) {
-      asset.deps.forEach((child) => {
-        queue.push(this.createAssets(child));
+      asset.deps.forEach((fullPath) => {
+        // 获取依赖文件内容
+        const child = this.createAssets(fullPath);
+        // 根据依赖的全路径 获取相对路径
+        const relativePath = this.modules.get(fullPath);
+        // 更新 asset mapping 数据
+        asset.mapping[relativePath] = child.id;
+        queue.push(child);
       });
     }
     return queue;
@@ -82,10 +93,12 @@ class Compiler {
     });
     // 根据依赖图生成所要往模板里面填充的数据
     const data = graph.map((asset) => {
-      const { code, filePath } = asset;
+      const { code, id, mapping } = asset;
+      console.log(mapping, id, code);
       return {
         code,
-        filePath,
+        id,
+        mapping,
       };
     });
     // console.log(data);

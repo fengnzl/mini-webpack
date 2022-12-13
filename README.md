@@ -454,7 +454,104 @@ export default Compiler;
 
 ![image-20221214004245953](https://raw.githubusercontent.com/fengnzl/HexoImages/master/blog/202212140042033.png)
 
-这里我们可以看到生成的打包文件还存在一些问题，这里路径和执行时候的文件并没有关联上，因此我们需要通过在打包过程中生成一个 `mapping` 对象来找到对应引入的文件，且可以避免同名文件不同文件夹下的冲突。
+这里我们可以看到生成的打包文件还存在一些问题，这里路径和执行时候的文件并没有关联上，因此我们需要通过在打包过程中生成一个 `mapping` 对象来找到对应引入的文件，且可以避免同名文件不同文件夹下的命名冲突。最终我们打包的模板应该是类似这种形式：
+
+```js
+// example/basic/simulateBundle2.js
+(function (modules) {
+  function require(id) {
+    const module = {
+      exports: {},
+    };
+    const [fn, mapping] = modules[id];
+
+    function localRequire(filePath) {
+      const id = mapping[filePath];
+      return require(id);
+    }
+    fn(localRequire, module, module.exports);
+    return module.exports;
+  }
+  require(0);
+})({
+  0: [
+    function (require, module, exports) {
+      // index.js
+      // 模拟 cjs require 函数
+      const { foo } = require("./foo.js");
+      foo();
+      console.log("basic test");
+    },
+    {
+      "./foo.js": 1,
+    },
+  ],
+  1: [
+    function (require, module, exports) {
+      // foo.js
+      function foo() {
+        console.log("foo load");
+      }
+      module.exports = {
+        foo,
+      };
+    },
+    {},
+  ],
+});
+// foo load
+// basic test
+```
+
+因此我们这次主要处理生成 `mapping` 信息和修改 `bundle.ejs` 模板文件，以下为主要的改动。
+
+```js
+// bundle.ejs
+(function (modules) {
+  //...
+})({
+  <% data.forEach((info) => { %>
+    "<%- info['id'] %>": [function(require, module, exports){
+      <%- info['code'] %>
+    },<%- JSON.stringify(info['mapping']) %>],
+  <% }); %>
+});
+      
+// Compiler.js
+createGraph() {
+  // 获取文件名全路径
+  const entryFullName = join(executePath, this.options.entry);
+  const mainAsset = this.createAssets(entryFullName);
+  const queue = [mainAsset];
+  for (const asset of queue) {
+    asset.deps.forEach((fullPath) => {
+      // 获取依赖文件内容
+      const child = this.createAssets(fullPath);
+      // 根据依赖的全路径 获取相对路径
+      const relativePath = this.modules.get(fullPath);
+      // 更新 asset mapping 数据
+      asset.mapping[relativePath] = child.id;
+      queue.push(child);
+    });
+  }
+  return queue;
+}
+build(graph) {
+  //...
+  // 根据依赖图生成所要往模板里面填充的数据
+  const data = graph.map((asset) => {
+    const { code, id, mapping } = asset;
+    console.log(mapping, id, code);
+    return {
+      code,
+      id,
+      mapping,
+    };
+  });
+}
+```
+
+当修改完成之后我们再次执行 `npx nx build basic` 就可以看到在 `example/basic/dist` 文件下已经有 `bundle.js` 的生成，且可正常运行。
 
 ## 扩展知识
 
