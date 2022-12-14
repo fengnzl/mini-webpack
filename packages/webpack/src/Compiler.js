@@ -6,9 +6,9 @@ import babelTraverse from "@babel/traverse";
 import { fileURLToPath } from "node:url";
 import ejs from "ejs";
 import { transformFromAst } from "@babel/core";
+import { asArray } from "./utils.js";
 
 const __filename = fileURLToPath(import.meta.url);
-
 const traverse = babelTraverse.default;
 
 //运行命令所在的目录
@@ -18,8 +18,13 @@ let id = 0;
 class Compiler {
   constructor(options) {
     this.options = options;
+    this.moduleRules = this.getModuleRules();
     // 保存已经遍历过的依赖
     this.modules = new Map();
+    // loader 调用时候的上下文，上面绑定一些 api
+    this.loaderContext = {
+      addDependency() {},
+    };
   }
 
   run() {
@@ -27,13 +32,34 @@ class Compiler {
     const graph = this.createGraph();
     this.build(graph);
   }
+  getModuleRules() {
+    const module = this.options.module;
+    if (!module || !module.rules) return [];
+    return module.rules;
+  }
+  preprocessFile(source, filePath) {
+    this.moduleRules.forEach((rule) => {
+      const { test, use } = rule;
+      if (test.test(filePath)) {
+        const useArray = asArray(use);
+        // loader 从后向前调用
+        useArray.reverse().forEach(({ options, loader }) => {
+          this.loaderContext.getOptions = () => options;
+          source = loader.call(this.loaderContext, source);
+        });
+      }
+    });
+    return source;
+  }
 
   // 获取文件内容
   createAssets(filePath) {
     // 获取文件内容
-    const source = readFileSync(filePath, {
+    let source = readFileSync(filePath, {
       encoding: "utf-8",
     });
+    // 调用 loader 预处理文件
+    source = this.preprocessFile(source, filePath);
     // 获取依赖关系
     const ast = parse(source, {
       sourceType: "module",
@@ -94,7 +120,7 @@ class Compiler {
     // 根据依赖图生成所要往模板里面填充的数据
     const data = graph.map((asset) => {
       const { code, id, mapping } = asset;
-      console.log(mapping, id, code);
+      // console.log(mapping, id, code);
       return {
         code,
         id,

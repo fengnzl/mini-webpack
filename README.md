@@ -553,6 +553,86 @@ build(graph) {
 
 当修改完成之后我们再次执行 `npx nx build basic` 就可以看到在 `example/basic/dist` 文件下已经有 `bundle.js` 的生成，且可正常运行。
 
+## loader 实现
+
+> Webpack enables use of [loaders](https://webpack.js.org/concepts/loaders) to preprocess files. This allows you to bundle any static resource way beyond JavaScript. You can easily write your own loaders using Node.js.
+
+通过官网我们可知 `loader` 主要作用是预处理打包文件，从而我们可以打包除了 Javascript 的文件。我们在 `webpack.config.js`  文件配置 `loader`  之后，其调用顺序为从后往前，且可以在函数内部通过 `this` 来获取 `loader` 相关的 `API`。
+
+首先我们在默认配置文件增加如下配置：
+
+```js
+// webpack/src/config.js
+import jsonLoader from "./jsonLoader.js";
+// 默认 config 配置
+export const DefaultBuildConfig = {
+  //...
+  module: {
+    rules: [
+      {
+        test: /\.json$/,
+        use: [
+          {
+            loader: jsonLoader,
+            options: {
+              name: "jsonLader",
+            },
+          },
+        ],
+      },
+    ],
+  },
+};
+
+```
+
+然后在 `webpack/src/jsonLoader.js` 中编写简单的 `loader`
+
+```js
+export default function (source) {
+  // 获取配置 loader 时传递的 options 参数
+  const options = this.getOptions();
+  console.log("loader---", options);
+  return `export default ${JSON.stringify(source)}`;
+}
+```
+
+最后我们在 `Compiler.js` 中新增通过 loader 进行文件预处理的代码即可，主要新增代码如下所示
+
+```js
+constructor(options) {
+  //...
+  this.moduleRules = this.getModuleRules();
+  // loader 调用时候的上下文，上面绑定一些 api
+  this.loaderContext = {
+    addDependency() {},
+  };
+}
+getModuleRules() {
+  const module = this.options.module;
+  if (!module || !module.rules) return [];
+  return module.rules;
+}
+preprocessFile(source, filePath) {
+  this.moduleRules.forEach((rule) => {
+    const { test, use } = rule;
+    if (test.test(filePath)) {
+      const useArray = asArray(use);
+      // loader 从后向前调用
+      useArray.reverse().forEach(({ options, loader }) => {
+        this.loaderContext.getOptions = () => options;
+        source = loader.call(this.loaderContext, source);
+      });
+    }
+  });
+  return source;
+}
+```
+
+最后我们执行打包命令 `npx nx build basic` 即可看到文件能正常打包，命令行也输出了我们要获取的 `options` 配置
+
+![image-20221215000843277](https://raw.githubusercontent.com/fengnzl/HexoImages/master/blog/202212150008420.png)
+
 ## 扩展知识
 
 ### 调试 webpack
@@ -660,6 +740,6 @@ module.exports = {
 
 **使用 node 调试命令**
 
-当我们执行 `webpack` 命令时实际上运行的是 `node_modules` 下面 `.bin` 的 `webpack` 中的代码，因此我们可以运行以下命令 `node --inspect-brk ./node_modules/.bin/webpack ` 当执行 `node --inspect-brk` 命令之后，node 会自动断点断在代码文件的第一行，这时我们打开 chrome，输入以下网址 `chrome://inspect` 点击这里的 `inspect` 就可以进入调试。
+当我们执行 `webpack` 命令时实际上运行的是 `node_modules` 下面 `.bin` 的 `webpack` 中的代码，因此我们可以运行以下命令 `node --inspect-brk ./node_modules/.bin/webpack ` 当执行 `node --inspect-brk` 命令之后，node 会自动断点断在代码文件的第一行，这时我们打开 chrome，输入以下网址 `chrome://inspect` 点击这里的 `inspect` 就可以进入调试。如果执行上面语句报错的话，我们可以直接执行 `node --inspect-brk ./node_modules/webpack/bin/webpack.js`
 
 ![image-20221211215218464](https://raw.githubusercontent.com/fengnzl/HexoImages/master/blog/202212112152606.png)
